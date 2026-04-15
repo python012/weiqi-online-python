@@ -1,0 +1,22 @@
+[tool]
+python-version = "3.11"
+
+[project]
+name = "weiqi-online-python"
+version = "1.0.0"
+description = "围棋在线对弈平台 - Python FastAPI 版本"
+requires-python = ">=3.11"
+
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-socketio[asyncio]>=5.11.0",
+    "python-socketio[asyncio]>=5.11.0",
+    "pydantic>=2.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
