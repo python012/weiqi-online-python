@@ -3,22 +3,18 @@ import uuid
 import time
 from typing import Optional
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import socketio
 from .room_manager import room_manager
 from .types import Player, StoneColor, ChatMessage, RoomStatus
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+sio = socketio.AsyncServer(
+    async_mode="asgi",
+    cors_allowed_origins="*",
+    ping_timeout=60,
+    ping_interval=25,
 )
-
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 socket_app = socketio.ASGIApp(sio, app)
 
 socket_map: dict[str, dict] = {}

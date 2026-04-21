@@ -1,0 +1,13 @@
+{
+  "title": "围棋在线对弈",
+  "emoji": "⭕",
+  "color_from": "yellow",
+  "color_to": "black",
+  "tracing": false,
+  "sdk": "fastapi",
+  "language": "python",
+  "license": "MIT",
+  "datasets": [],
+  "metrics": [],
+  "tags": ["game", "go", "weiqi", "real-time"]
+}

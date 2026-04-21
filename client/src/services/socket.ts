@@ -3,7 +3,8 @@ import { io, Socket } from 'socket.io-client';
 import { Room, Player, Move, ChatMessage, Position } from '../types';
 
 // 创建Socket连接
-const SOCKET_URL = (import.meta as any).env.PROD ? '' : 'http://localhost:4000';
+// 生产环境使用相对路径，开发环境走 Vite 代理到后端
+const SOCKET_URL = (import.meta as any).env.PROD ? '' : '';
 
 class SocketService {
   private socket: Socket | null = null;
@@ -16,7 +17,6 @@ class SocketService {
     if (this.socket?.connected) return;
 
     this.socket = io(SOCKET_URL, {
-      transports: ['websocket'],
       reconnection: true,
     });
 

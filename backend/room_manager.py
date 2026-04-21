@@ -1,4 +1,5 @@
 from typing import Optional
+import uuid
 import time
 from .types import (
     Room, Player, StoneColor, Move, Position, 

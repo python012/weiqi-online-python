@@ -87,3 +87,18 @@ WebSocket 事件：
 - `game:pass` - 停一手
 - `game:resign` - 认输
 - `chat:send` - 发送消息
+
+## Hugging Face 部署
+
+```bash
+# 直接运行
+python app.py
+
+# 或 uvicorn
+uvicorn app:socket_app --host 0.0.0.0 --port 7860
+```
+
+关键文件：
+- `app.py` - HF Space 入口（端口 7860）
+- `hf_space.json` - Space 元数据配置
+- `requirements.txt` - Python 依赖
