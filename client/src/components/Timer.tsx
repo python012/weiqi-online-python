@@ -1,15 +1,14 @@
 // 计时器组件
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Player, StoneColor, GAME_CONFIG } from '../types';
+import React from 'react';
+import { Player, StoneColor } from '../types';
 import './Timer.css';
 
 interface TimerProps {
   players: { host: Player | null; guest: Player | null };
   currentTurn: StoneColor;
-  onTimeout: (loserColor: StoneColor) => void;
 }
 
-const Timer: React.FC<TimerProps> = ({ players, currentTurn, onTimeout }) => {
+const Timer: React.FC<TimerProps> = ({ players, currentTurn }) => {
   // 格式化时间
   const formatTime = (ms: number): string => {
     const totalSeconds = Math.floor(ms / 1000);

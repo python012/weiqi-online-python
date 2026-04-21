@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { Room, Player, Move, ChatMessage, Position } from '../types';
 
 // 创建Socket连接
-const SOCKET_URL = import.meta.env.PROD ? '' : 'http://localhost:4000';
+const SOCKET_URL = (import.meta as any).env.PROD ? '' : 'http://localhost:4000';
 
 class SocketService {
   private socket: Socket | null = null;
@@ -138,11 +138,11 @@ class SocketService {
     this.socket?.on('room:game-start', callback);
   }
 
-  onMove(callback: (move: Move, room: Room) => void): void {
+  onMove(callback: (room: Room) => void): void {
     this.socket?.on('game:move', callback);
   }
 
-  onPass(callback: (move: Move, room: Room) => void): void {
+  onPass(callback: (room: Room) => void): void {
     this.socket?.on('game:pass', callback);
   }
 
@@ -187,11 +187,11 @@ class SocketService {
     this.socket?.off('room:game-start', callback);
   }
 
-  offMove(callback: (move: Move, room: Room) => void): void {
+  offMove(callback: (room: Room) => void): void {
     this.socket?.off('game:move', callback);
   }
 
-  offPass(callback: (move: Move, room: Room) => void): void {
+  offPass(callback: (room: Room) => void): void {
     this.socket?.off('game:pass', callback);
   }
 

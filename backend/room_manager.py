@@ -1,10 +1,10 @@
 from typing import Optional
+import time
 from .types import (
     Room, Player, StoneColor, Move, Position, 
     RoomStatus, create_empty_board
 )
 from .game_engine import validate_move, make_move, calculate_score
-import uuid
 
 
 class RoomManager:
@@ -109,7 +109,7 @@ class RoomManager:
             return None
 
         room.status = RoomStatus.PLAYING
-        room.startedAt = int(uuid.time.time() * 1000)
+        room.startedAt = int(time.time() * 1000)
         room.currentTurn = StoneColor.BLACK
         
         host = room.players.get("host")
@@ -165,7 +165,7 @@ class RoomManager:
             position=Position(x=x, y=y),
             color=color,
             moveNumber=len(room.moves) + 1,
-            timestamp=int(uuid.time.time() * 1000),
+            timestamp=int(time.time() * 1000),
             capturedStones=captured
         )
         
@@ -202,7 +202,7 @@ class RoomManager:
             position=Position(x=-1, y=-1),
             color=color,
             moveNumber=len(room.moves) + 1,
-            timestamp=int(uuid.time.time() * 1000),
+            timestamp=int(time.time() * 1000),
             capturedStones=[]
         )
         

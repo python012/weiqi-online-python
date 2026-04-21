@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { socketService } from '../services/socket';
-import { Room, Player } from '../types';
+import { Room } from '../types';
 import './Home.css';
 
 const Home: React.FC = () => {

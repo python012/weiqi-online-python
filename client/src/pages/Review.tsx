@@ -1,7 +1,7 @@
 // 复盘页面
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Room, Move, StoneColor } from '../types';
+import { Room, StoneColor } from '../types';
 import Board from '../components/Board';
 import './Review.css';
 
@@ -54,7 +54,7 @@ const Review: React.FC = () => {
   }, [currentStep, room]);
 
   // 处理落子（用于重新开始对局）
-  const handleMove = useCallback((position: { x: number; y: number }) => {
+  const handleMove = useCallback(() => {
     // 复盘模式下不处理落子
   }, []);
 

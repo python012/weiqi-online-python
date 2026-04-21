@@ -1,5 +1,6 @@
 import random
 import uuid
+import time
 from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -243,7 +244,7 @@ async def chat_send(sid, content: str):
         senderId=player_id,
         senderNickname=sender.nickname,
         content=content.strip(),
-        timestamp=int(uuid.time.time() * 1000),
+        timestamp=int(time.time() * 1000),
     )
     
     await sio.emit("chat:message", message.model_dump(), to=room.password)
@@ -251,4 +252,4 @@ async def chat_send(sid, content: str):
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "timestamp": uuid.time.time() * 1000}
+    return {"status": "ok", "timestamp": time.time() * 1000}

@@ -1,5 +1,5 @@
 // 棋盘组件
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { StoneColor, Position, Move } from '../types';
 import { validateMove } from '../game/engine';
 import './Board.css';

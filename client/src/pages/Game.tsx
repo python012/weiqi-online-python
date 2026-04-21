@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { socketService } from '../services/socket';
-import { Room, Player, Move, ChatMessage, Position, StoneColor, GAME_CONFIG } from '../types';
+import { Room, Player, ChatMessage, Position, StoneColor, GAME_CONFIG } from '../types';
 import Board from '../components/Board';
 import Chat from '../components/Chat';
 import './Game.css';
@@ -18,7 +18,7 @@ const Game: React.FC = () => {
   const [showResult, setShowResult] = useState(false);
   const [myColor, setMyColor] = useState<StoneColor | null>(null);
 
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<number | null>(null);
   const lastTickRef = useRef<number>(Date.now());
 
   // 初始化
@@ -46,7 +46,6 @@ const Game: React.FC = () => {
       const parsedPlayer: Player = JSON.parse(savedPlayer);
       if (parsedRoom.status === 'playing') {
         const isBlack = parsedPlayer.color === 'black';
-        const colorText = isBlack ? '黑' : '白';
         const now = Date.now();
         const sysMessages: ChatMessage[] = [
           {
@@ -76,20 +75,21 @@ const Game: React.FC = () => {
       localStorage.setItem('currentRoom', JSON.stringify(updatedRoom));
     };
 
-    const handleMove = (move: Move, updatedRoom: Room) => {
+    const handleMove = (updatedRoom: Room) => {
       setRoom(updatedRoom);
       localStorage.setItem('currentRoom', JSON.stringify(updatedRoom));
       
       // 更新提子统计
-      if (move.capturedStones && move.capturedStones.length > 0) {
+      const lastMove = updatedRoom.moves[updatedRoom.moves.length - 1];
+      if (lastMove && lastMove.capturedStones && lastMove.capturedStones.length > 0) {
         setCapturedStones(prev => ({
           ...prev,
-          [move.color]: prev[move.color] + move.capturedStones!.length
+          [lastMove.color]: prev[lastMove.color] + lastMove.capturedStones!.length
         }));
       }
     };
 
-    const handlePass = (move: Move, updatedRoom: Room) => {
+    const handlePass = (updatedRoom: Room) => {
       setRoom(updatedRoom);
       localStorage.setItem('currentRoom', JSON.stringify(updatedRoom));
     };
@@ -181,7 +181,7 @@ const Game: React.FC = () => {
   }, [room?.status]);
 
   // 超时判负处理
-  const handleTimeout = useCallback((loserColor: StoneColor) => {
+  const handleTimeout = useCallback(() => {
     socketService.resign(() => {});
   }, []);
 
