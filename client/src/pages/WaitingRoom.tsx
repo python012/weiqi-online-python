@@ -89,7 +89,6 @@ const WaitingRoom: React.FC = () => {
   }
 
   const isHost = player?.role === 'host';
-  const isGuest = player?.role === 'guest';
   const myPlayer = isHost ? room.players.host : room.players.guest;
   const opponent = isHost ? room.players.guest : room.players.host;
 
