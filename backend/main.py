@@ -1,23 +1,51 @@
+import json
 import random
 import uuid
 import time
 from typing import Optional
-from fastapi import FastAPI
-import socketio
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from .room_manager import room_manager
-from .types import Player, StoneColor, ChatMessage, RoomStatus
+from .types import Player, StoneColor, ChatMessage, RoomStatus, Position, Move, Room
 
 app = FastAPI()
 
-sio = socketio.AsyncServer(
-    async_mode="asgi",
-    cors_allowed_origins="*",
-    ping_timeout=60,
-    ping_interval=25,
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-socket_app = socketio.ASGIApp(sio, app)
 
-socket_map: dict[str, dict] = {}
+# Alias for ASGI compatibility
+socket_app = app
+
+# Connection manager
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, WebSocket] = {}  # sid -> websocket
+        self.sid_to_player: dict[str, dict] = {}  # sid -> {password, player_id}
+
+    async def connect(self, websocket: WebSocket, sid: str):
+        await websocket.accept()
+        self.active_connections[sid] = websocket
+
+    def disconnect(self, sid: str):
+        self.active_connections.pop(sid, None)
+        self.sid_to_player.pop(sid, None)
+
+    async def send_personal(self, sid: str, data: dict):
+        if sid in self.active_connections:
+            await self.active_connections[sid].send_text(json.dumps(data))
+
+    async def send_to_room(self, password: str, data: dict):
+        for s, info in self.sid_to_player.items():
+            if info["password"] == password and s in self.active_connections:
+                await self.active_connections[s].send_text(json.dumps(data))
+
+
+manager = ConnectionManager()
 
 
 def generate_player_id() -> str:
@@ -40,28 +68,52 @@ def generate_nickname() -> str:
     return f"{random.choice(adjectives)}{random.choice(animals)}"
 
 
-@sio.event
-async def connect(sid, environ):
-    print(f"客户端连接: {sid}")
+@app.websocket("/ws/{sid}")
+async def websocket_endpoint(websocket: WebSocket, sid: str):
+    await websocket.accept()
+    manager.active_connections[sid] = websocket
+    try:
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data)
+            event = msg.get("event")
+            payload = msg.get("data")
+
+            if event == "room:create":
+                await handle_room_create(sid, payload)
+            elif event == "room:join":
+                await handle_room_join(sid, payload)
+            elif event == "room:leave":
+                await handle_room_leave(sid)
+            elif event == "game:move":
+                await handle_game_move(sid, payload)
+            elif event == "game:pass":
+                await handle_game_pass(sid)
+            elif event == "game:resign":
+                await handle_game_resign(sid)
+            elif event == "chat:send":
+                await handle_chat_send(sid, payload)
+    except WebSocketDisconnect:
+        await handle_disconnect(sid)
 
 
-@sio.event
-async def disconnect(sid):
-    if sid in socket_map:
-        player_id = socket_map[sid]["player_id"]
-        password = socket_map[sid]["password"]
-        room_manager.set_player_connected(password, player_id, False)
-        
-        room = room_manager.get_room_by_password(password)
-        if room:
-            await sio.emit("room:player-left", player_id, to=room.password)
-        
-        del socket_map[sid]
-    print(f"客户端断开: {sid}")
+async def handle_disconnect(sid: str):
+    if sid not in manager.sid_to_player:
+        manager.disconnect(sid)
+        return
+
+    player_id = manager.sid_to_player[sid]["player_id"]
+    password = manager.sid_to_player[sid]["password"]
+    room_manager.set_player_connected(password, player_id, False)
+
+    room = room_manager.get_room_by_password(password)
+    if room:
+        await manager.send_to_room(password, {"event": "room:player-left", "data": player_id})
+
+    manager.disconnect(sid)
 
 
-@sio.event
-async def room_create(sid, room_name: str):
+async def handle_room_create(sid: str, room_name: str):
     player_id = generate_player_id()
     player = Player(
         id=player_id,
@@ -76,21 +128,19 @@ async def room_create(sid, room_name: str):
     )
 
     room = room_manager.create_room(room_name, player)
-    socket_map[sid] = {"password": room.password, "player_id": player_id}
-    await sio.enter_room(sid, room.password)
-    
-    await sio.emit("room:created", room.model_dump(), to=sid)
+    manager.sid_to_player[sid] = {"password": room.password, "player_id": player_id}
+
+    await manager.send_personal(sid, {"event": "room:created", "data": room.model_dump()})
 
 
-@sio.event
-async def room_join(sid, password: str):
+async def handle_room_join(sid: str, password: str):
     player_id = generate_player_id()
     player = Player(
         id=player_id,
         nickname=generate_nickname(),
         role="guest",
         color=StoneColor.WHITE,
-        isReady=False,
+        isReady=True,
         connected=True,
         timeRemaining=20 * 60 * 1000,
         byoyomiCount=3,
@@ -100,141 +150,126 @@ async def room_join(sid, password: str):
     room, error = room_manager.join_room(password, player)
 
     if error:
-        await sio.emit("error", error, to=sid)
+        await manager.send_personal(sid, {"event": "error", "data": error})
         return
 
     if room:
-        socket_map[sid] = {"password": password, "player_id": player_id}
-        await sio.enter_room(sid, password)
-        
+        manager.sid_to_player[sid] = {"password": password, "player_id": player_id}
+
         guest = room.players.get("guest")
         host = room.players.get("host")
-        
-        await sio.emit("room:joined", room.model_dump(), guest.model_dump() if guest else None, to=sid)
-        
-        if host:
-            await sio.emit("room:player-joined", guest.model_dump() if guest else None, to=room.password)
 
-
-@sio.event
-async def room_ready(sid):
-    if sid not in socket_map:
-        return
-    
-    password = socket_map[sid]["password"]
-    player_id = socket_map[sid]["player_id"]
-    
-    both_ready = room_manager.player_ready(password, player_id)
-    room = room_manager.get_room_by_password(password)
-    
-    if both_ready and room:
         room_manager.start_game(password)
-        await sio.emit("room:game-start", room.model_dump(), to=room.password)
-    elif room:
-        await sio.emit("room:updated", room.model_dump(), to=room.password)
+        room_data = room.model_dump()
+
+        # Send to guest (joining player)
+        await manager.send_personal(sid, {"event": "room:game-start", "data": room_data})
+
+        # Send to host if connected
+        if host and host.connected:
+            await manager.send_to_room(password, {"event": "room:game-start", "data": room_data})
 
 
-@sio.event
-async def room_leave(sid):
-    if sid not in socket_map:
+async def handle_room_leave(sid: str):
+    if sid not in manager.sid_to_player:
         return
-    
-    password = socket_map[sid]["password"]
-    player_id = socket_map[sid]["player_id"]
-    
+
+    password = manager.sid_to_player[sid]["password"]
+    player_id = manager.sid_to_player[sid]["player_id"]
+
     room_manager.leave_room(password, player_id)
-    
+
     room = room_manager.get_room_by_password(password)
     if room:
-        await sio.emit("room:player-left", player_id, to=room.password)
-        await sio.emit("room:updated", room.model_dump(), to=room.password)
+        await manager.send_to_room(password, {"event": "room:player-left", "data": player_id})
+        await manager.send_to_room(password, {"event": "room:updated", "data": room.model_dump()})
     else:
-        await sio.emit("room:updated", {"status": "deleted"}, to=sid)
-    
-    del socket_map[sid]
+        await manager.send_personal(sid, {"event": "room:updated", "data": {"status": "deleted"}})
+
+    manager.disconnect(sid)
 
 
-@sio.event
-async def game_move(sid, position: dict):
-    if sid not in socket_map:
-        await sio.emit("error", "未加入房间", to=sid)
+async def handle_game_move(sid: str, position: dict):
+    if sid not in manager.sid_to_player:
+        await manager.send_personal(sid, {"event": "error", "data": "未加入房间"})
         return
-    
-    from .types import Position
+
     pos = Position(**position)
-    
-    password = socket_map[sid]["password"]
-    player_id = socket_map[sid]["player_id"]
-    
+    password = manager.sid_to_player[sid]["password"]
+    player_id = manager.sid_to_player[sid]["player_id"]
+
     move, error = room_manager.make_move(password, player_id, pos.x, pos.y)
     room = room_manager.get_room_by_password(password)
-    
+
     if error:
-        await sio.emit("error", error, to=sid)
+        await manager.send_personal(sid, {"event": "error", "data": error})
         return
-    
+
     if move and room:
-        await sio.emit("game:move", move.model_dump(), room.model_dump(), to=room.password)
+        await manager.send_to_room(password, {
+            "event": "game:move",
+            "data": {"move": move.model_dump(), "room": room.model_dump()}
+        })
 
 
-@sio.event
-async def game_pass(sid):
-    if sid not in socket_map:
+async def handle_game_pass(sid: str):
+    if sid not in manager.sid_to_player:
         return
-    
-    password = socket_map[sid]["password"]
-    player_id = socket_map[sid]["player_id"]
-    
+
+    password = manager.sid_to_player[sid]["password"]
+    player_id = manager.sid_to_player[sid]["player_id"]
+
     move, error = room_manager.pass_turn(password, player_id)
     room = room_manager.get_room_by_password(password)
-    
+
     if move and room:
         if room.status == RoomStatus.FINISHED:
-            await sio.emit("game:end", room.model_dump(), to=room.password)
+            await manager.send_to_room(password, {"event": "game:end", "data": room.model_dump()})
         else:
-            await sio.emit("game:pass", move.model_dump(), room.model_dump(), to=room.password)
+            await manager.send_to_room(password, {
+                "event": "game:pass",
+                "data": {"move": move.model_dump(), "room": room.model_dump()}
+            })
 
 
-@sio.event
-async def game_resign(sid):
-    if sid not in socket_map:
+async def handle_game_resign(sid: str):
+    if sid not in manager.sid_to_player:
         return
-    
-    password = socket_map[sid]["password"]
-    player_id = socket_map[sid]["player_id"]
-    
+
+    password = manager.sid_to_player[sid]["password"]
+    player_id = manager.sid_to_player[sid]["player_id"]
+
     winner, error = room_manager.resign(password, player_id)
     room = room_manager.get_room_by_password(password)
-    
+
     if winner and room:
-        await sio.emit("game:resign", winner, to=room.password)
-        await sio.emit("game:end", room.model_dump(), to=room.password)
+        await manager.send_to_room(password, {"event": "game:resign", "data": winner})
+        await manager.send_to_room(password, {"event": "game:end", "data": room.model_dump()})
 
 
-@sio.event
-async def chat_send(sid, content: str):
-    if sid not in socket_map or not content.strip():
+async def handle_chat_send(sid: str, content: str):
+    if sid not in manager.sid_to_player or not content.strip():
         return
-    
-    password = socket_map[sid]["password"]
-    player_id = socket_map[sid]["player_id"]
-    
+
+    password = manager.sid_to_player[sid]["password"]
+    player_id = manager.sid_to_player[sid]["player_id"]
+
     room = room_manager.get_room_by_password(password)
     if not room:
         return
-    
+
     host = room.players.get("host")
     guest = room.players.get("guest")
-    
+
     sender = None
     if host and host.id == player_id:
         sender = host
     elif guest and guest.id == player_id:
         sender = guest
-    
+
     if not sender:
         return
-    
+
     message = ChatMessage(
         id=f"msg_{uuid.uuid4().hex[:10]}",
         senderId=player_id,
@@ -242,8 +277,8 @@ async def chat_send(sid, content: str):
         content=content.strip(),
         timestamp=int(time.time() * 1000),
     )
-    
-    await sio.emit("chat:message", message.model_dump(), to=room.password)
+
+    await manager.send_to_room(password, {"event": "chat:message", "data": message.model_dump()})
 
 
 @app.get("/api/health")

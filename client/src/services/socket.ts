@@ -1,45 +1,69 @@
-// Socket.IO 客户端服务层
-import { io, Socket } from 'socket.io-client';
-import { Room, Player, Move, ChatMessage, Position } from '../types';
+// WebSocket 客户端服务层
+import { Room, Player, ChatMessage, Position } from '../types';
 
-// 创建Socket连接
-// 生产环境使用相对路径，开发环境走 Vite 代理到后端
-const SOCKET_URL = (import.meta as any).env.PROD ? '' : '';
+const WS_URL = 'ws://localhost:4001';
 
 class SocketService {
-  private socket: Socket | null = null;
+  private ws: WebSocket | null = null;
+  private sid: string = '';
   private listeners: Map<string, Set<Function>> = new Map();
+  private pendingMessages: Array<{ event: string; data: any }> = [];
 
   /**
-   * 连接Socket服务器
+   * 生成唯一客户端 ID
+   */
+  private generateSid(): string {
+    return 'client_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+  }
+
+  /**
+   * 连接 WebSocket 服务器
    */
   connect(): void {
-    if (this.socket?.connected) return;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
 
-    this.socket = io(SOCKET_URL, {
-      reconnection: true,
-    });
+    this.sid = this.generateSid();
+    this.ws = new WebSocket(`${WS_URL}/ws/${this.sid}`);
 
-    this.socket.on('connect', () => {
-      console.log('已连接到服务器');
-    });
+    this.ws.onopen = () => {
+      console.log('[WS] Connected, sid:', this.sid);
+      // 发送等待的消息
+      this.pendingMessages.forEach(msg => {
+        this.ws?.send(JSON.stringify(msg));
+      });
+      this.pendingMessages = [];
+    };
 
-    this.socket.on('disconnect', () => {
-      console.log('已断开连接');
-    });
+    this.ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        const handlers = this.listeners.get(msg.event);
+        if (handlers) {
+          handlers.forEach(h => h(msg.data));
+        }
+      } catch (e) {
+        console.error('[WS] Parse error:', e);
+      }
+    };
 
-    this.socket.on('error', (error: string) => {
-      console.error('Socket错误:', error);
-    });
+    this.ws.onclose = () => {
+      console.log('[WS] Disconnected');
+      // 3秒后重连
+      setTimeout(() => this.connect(), 3000);
+    };
+
+    this.ws.onerror = (err) => {
+      console.error('[WS] Error:', err);
+    };
   }
 
   /**
    * 断开连接
    */
   disconnect(): void {
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket = null;
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
     }
   }
 
@@ -47,168 +71,107 @@ class SocketService {
    * 是否已连接
    */
   isConnected(): boolean {
-    return this.socket?.connected ?? false;
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * 发送消息
+   */
+  private send(event: string, data?: any): void {
+    const msg = { event, data };
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg));
+    } else {
+      this.pendingMessages.push(msg);
+    }
   }
 
   /**
    * 创建房间
    */
-  createRoom(roomName: string, callback: (room: Room) => void): void {
-    this.socket?.emit('room:create', roomName, callback);
+  createRoom(roomName: string): void {
+    this.send('room:create', roomName);
   }
 
   /**
    * 加入房间
    */
-  joinRoom(password: string, callback: (room: Room | null, player: Player | null, error?: string) => void): void {
-    this.socket?.emit('room:join', password, callback);
-  }
-
-  /**
-   * 观战
-   */
-  spectateRoom(password: string, callback: (room: Room | null, player: Player | null, error?: string) => void): void {
-    this.socket?.emit('room:spectate', password, callback);
-  }
-
-  /**
-   * 准备/确认开始
-   */
-  setReady(callback: () => void): void {
-    this.socket?.emit('room:ready', callback);
+  joinRoom(password: string): void {
+    this.send('room:join', password);
   }
 
   /**
    * 离开房间
    */
-  leaveRoom(callback: () => void): void {
-    this.socket?.emit('room:leave', callback);
+  leaveRoom(): void {
+    this.send('room:leave');
   }
 
   /**
    * 落子
    */
-  makeMove(position: Position, callback: (success: boolean, error?: string) => void): void {
-    this.socket?.emit('game:move', position, callback);
+  makeMove(position: Position): void {
+    this.send('game:move', position);
   }
 
   /**
    * Pass
    */
-  pass(callback: () => void): void {
-    this.socket?.emit('game:pass', callback);
+  pass(): void {
+    this.send('game:pass');
   }
 
   /**
    * 认输
    */
-  resign(callback: () => void): void {
-    this.socket?.emit('game:resign', callback);
+  resign(): void {
+    this.send('game:resign');
   }
 
   /**
    * 发送聊天消息
    */
-  sendChatMessage(content: string, callback: () => void): void {
-    this.socket?.emit('chat:send', content, callback);
+  sendChatMessage(content: string): void {
+    this.send('chat:send', content);
   }
 
   // 事件监听方法
-  onRoomCreated(callback: (room: Room) => void): void {
-    this.socket?.on('room:created', callback);
-  }
+  onRoomCreated(callback: (room: Room) => void): void { this.on('room:created', callback); }
+  onRoomJoined(callback: (room: Room, player: Player) => void): void { this.on('room:joined', callback); }
+  onRoomUpdated(callback: (room: Room) => void): void { this.on('room:updated', callback); }
+  onPlayerJoined(callback: (player: Player) => void): void { this.on('room:player-joined', callback); }
+  onPlayerLeft(callback: (playerId: string) => void): void { this.on('room:player-left', callback); }
+  onGameStart(callback: (room: Room) => void): void { this.on('room:game-start', callback); }
+  onMove(callback: (data: { move: any; room: Room }) => void): void { this.on('game:move', callback); }
+  onPass(callback: (data: { move: any; room: Room }) => void): void { this.on('game:pass', callback); }
+  onResign(callback: (winner: 'black' | 'white') => void): void { this.on('game:resign', callback); }
+  onGameEnd(callback: (room: Room) => void): void { this.on('game:end', callback); }
+  onChatMessage(callback: (message: ChatMessage) => void): void { this.on('chat:message', callback); }
+  onError(callback: (error: string) => void): void { this.on('error', callback); }
 
-  onRoomJoined(callback: (room: Room, player: Player) => void): void {
-    this.socket?.on('room:joined', callback);
-  }
-
-  onRoomUpdated(callback: (room: Room) => void): void {
-    this.socket?.on('room:updated', callback);
-  }
-
-  onPlayerJoined(callback: (player: Player) => void): void {
-    this.socket?.on('room:player-joined', callback);
-  }
-
-  onPlayerLeft(callback: (playerId: string) => void): void {
-    this.socket?.on('room:player-left', callback);
-  }
-
-  onGameStart(callback: (room: Room) => void): void {
-    this.socket?.on('room:game-start', callback);
-  }
-
-  onMove(callback: (room: Room) => void): void {
-    this.socket?.on('game:move', callback);
-  }
-
-  onPass(callback: (room: Room) => void): void {
-    this.socket?.on('game:pass', callback);
-  }
-
-  onResign(callback: (winner: 'black' | 'white') => void): void {
-    this.socket?.on('game:resign', callback);
-  }
-
-  onGameEnd(callback: (room: Room) => void): void {
-    this.socket?.on('game:end', callback);
-  }
-
-  onChatMessage(callback: (message: ChatMessage) => void): void {
-    this.socket?.on('chat:message', callback);
-  }
-
-  onError(callback: (error: string) => void): void {
-    this.socket?.on('error', callback);
+  private on(event: string, callback: Function): void {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+    this.listeners.get(event)!.add(callback);
   }
 
   // 移除监听
-  offRoomCreated(callback: (room: Room) => void): void {
-    this.socket?.off('room:created', callback);
-  }
+  offRoomCreated(callback: (room: Room) => void): void { this.off('room:created', callback); }
+  offRoomJoined(callback: (room: Room, player: Player) => void): void { this.off('room:joined', callback); }
+  offRoomUpdated(callback: (room: Room) => void): void { this.off('room:updated', callback); }
+  offPlayerJoined(callback: (player: Player) => void): void { this.off('room:player-joined', callback); }
+  offPlayerLeft(callback: (playerId: string) => void): void { this.off('room:player-left', callback); }
+  offGameStart(callback: (room: Room) => void): void { this.off('room:game-start', callback); }
+  offMove(callback: (data: { move: any; room: Room }) => void): void { this.off('game:move', callback); }
+  offPass(callback: (data: { move: any; room: Room }) => void): void { this.off('game:pass', callback); }
+  offResign(callback: (winner: 'black' | 'white') => void): void { this.off('game:resign', callback); }
+  offGameEnd(callback: (room: Room) => void): void { this.off('game:end', callback); }
+  offChatMessage(callback: (message: ChatMessage) => void): void { this.off('chat:message', callback); }
+  offError(callback: (error: string) => void): void { this.off('error', callback); }
 
-  offRoomJoined(callback: (room: Room, player: Player) => void): void {
-    this.socket?.off('room:joined', callback);
-  }
-
-  offRoomUpdated(callback: (room: Room) => void): void {
-    this.socket?.off('room:updated', callback);
-  }
-
-  offPlayerJoined(callback: (player: Player) => void): void {
-    this.socket?.off('room:player-joined', callback);
-  }
-
-  offPlayerLeft(callback: (playerId: string) => void): void {
-    this.socket?.off('room:player-left', callback);
-  }
-
-  offGameStart(callback: (room: Room) => void): void {
-    this.socket?.off('room:game-start', callback);
-  }
-
-  offMove(callback: (room: Room) => void): void {
-    this.socket?.off('game:move', callback);
-  }
-
-  offPass(callback: (room: Room) => void): void {
-    this.socket?.off('game:pass', callback);
-  }
-
-  offResign(callback: (winner: 'black' | 'white') => void): void {
-    this.socket?.off('game:resign', callback);
-  }
-
-  offGameEnd(callback: (room: Room) => void): void {
-    this.socket?.off('game:end', callback);
-  }
-
-  offChatMessage(callback: (message: ChatMessage) => void): void {
-    this.socket?.off('chat:message', callback);
-  }
-
-  offError(callback: (error: string) => void): void {
-    this.socket?.off('error', callback);
+  private off(event: string, callback: Function): void {
+    this.listeners.get(event)?.delete(callback);
   }
 }
 

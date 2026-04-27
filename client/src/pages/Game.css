@@ -36,6 +36,34 @@
   font-size: 14px;
 }
 
+.room-password {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #333;
+}
+
+.room-password strong {
+  font-size: 18px;
+  letter-spacing: 2px;
+  color: #1976D2;
+}
+
+.copy-pwd-btn {
+  padding: 4px 10px;
+  background: #1976D2;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.copy-pwd-btn:hover {
+  background: #1565C0;
+}
+
 .leave-btn {
   padding: 8px 16px;
   background: #fff;

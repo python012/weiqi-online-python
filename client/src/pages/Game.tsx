@@ -17,6 +17,7 @@ const Game: React.FC = () => {
   const [capturedStones, setCapturedStones] = useState({ black: 0, white: 0 });
   const [showResult, setShowResult] = useState(false);
   const [myColor, setMyColor] = useState<StoneColor | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const timerRef = useRef<number | null>(null);
   const lastTickRef = useRef<number>(Date.now());
@@ -40,14 +41,25 @@ const Game: React.FC = () => {
       setMyColor(p.color);
     }
 
-    // 游戏开始时添加系统提示消息
-    if (savedRoom && savedPlayer) {
-      const parsedRoom: Room = JSON.parse(savedRoom);
-      const parsedPlayer: Player = JSON.parse(savedPlayer);
-      if (parsedRoom.status === 'playing') {
+    // 游戏开始时添加系统提示消息（由 handleGameStart 处理）
+
+    // Socket 事件监听
+    const handleRoomCreated = (createdRoom: Room) => {
+      setRoom(createdRoom);
+      localStorage.setItem('currentRoom', JSON.stringify(createdRoom));
+    };
+
+    const handleGameStart = (updatedRoom: Room) => {
+      setRoom(updatedRoom);
+      localStorage.setItem('currentRoom', JSON.stringify(updatedRoom));
+      // 初始化系统消息
+      const currentRoom = localStorage.getItem('currentRoom');
+      const savedPlayer = localStorage.getItem('currentPlayer');
+      if (savedPlayer) {
+        const parsedPlayer: Player = JSON.parse(savedPlayer);
         const isBlack = parsedPlayer.color === 'black';
         const now = Date.now();
-        const sysMessages: ChatMessage[] = [
+        setMessages([
           {
             id: `sys_name_${now}`,
             senderId: 'system',
@@ -60,27 +72,26 @@ const Game: React.FC = () => {
             senderId: 'system',
             senderNickname: '系统',
             content: isBlack
-              ? `对局开始，本次对局由您执黑，请您开始斟酌落子`
-              : `对局开始，本次对局由您执白，现在开始等待对方落子`,
+              ? '对局开始，本次对局由您执黑，请您开始斟酌落子'
+              : '对局开始，本次对局由您执白，现在开始等待对方落子',
             timestamp: now,
           },
-        ];
-        setMessages(sysMessages);
+        ]);
       }
-    }
+    };
 
-    // Socket 事件监听
     const handleRoomUpdated = (updatedRoom: Room) => {
       setRoom(updatedRoom);
       localStorage.setItem('currentRoom', JSON.stringify(updatedRoom));
     };
 
-    const handleMove = (updatedRoom: Room) => {
+    const handleMove = (data: { move: any; room: Room }) => {
+      const updatedRoom = data.room;
       setRoom(updatedRoom);
       localStorage.setItem('currentRoom', JSON.stringify(updatedRoom));
       
       // 更新提子统计
-      const lastMove = updatedRoom.moves[updatedRoom.moves.length - 1];
+      const lastMove = data.move;
       if (lastMove && lastMove.capturedStones && lastMove.capturedStones.length > 0) {
         setCapturedStones(prev => ({
           ...prev,
@@ -89,9 +100,9 @@ const Game: React.FC = () => {
       }
     };
 
-    const handlePass = (updatedRoom: Room) => {
-      setRoom(updatedRoom);
-      localStorage.setItem('currentRoom', JSON.stringify(updatedRoom));
+    const handlePass = (data: { move: any; room: Room }) => {
+      setRoom(data.room);
+      localStorage.setItem('currentRoom', JSON.stringify(data.room));
     };
 
     const handleResign = (winner: StoneColor) => {
@@ -116,6 +127,8 @@ const Game: React.FC = () => {
       setMessages(prev => [...prev, message]);
     };
 
+    socketService.onRoomCreated(handleRoomCreated);
+    socketService.onGameStart(handleGameStart);
     socketService.onRoomUpdated(handleRoomUpdated);
     socketService.onMove(handleMove);
     socketService.onPass(handlePass);
@@ -124,6 +137,8 @@ const Game: React.FC = () => {
     socketService.onChatMessage(handleChatMessage);
 
     return () => {
+      socketService.offRoomCreated(handleRoomCreated);
+      socketService.offGameStart(handleGameStart);
       socketService.offRoomUpdated(handleRoomUpdated);
       socketService.offMove(handleMove);
       socketService.offPass(handlePass);
@@ -182,33 +197,29 @@ const Game: React.FC = () => {
 
   // 超时判负处理
   const handleTimeout = useCallback(() => {
-    socketService.resign(() => {});
+    socketService.resign();
   }, []);
 
   // 落子
   const handleMove = useCallback((position: Position) => {
-    socketService.makeMove(position, (success, error) => {
-      if (!success && error) {
-        console.error('落子失败:', error);
-      }
-    });
+    socketService.makeMove(position);
   }, []);
 
   // Pass
   const handlePass = useCallback(() => {
-    socketService.pass(() => {});
+    socketService.pass();
   }, []);
 
   // 认输
   const handleResign = useCallback(() => {
     if (confirm('确定要认输吗？')) {
-      socketService.resign(() => {});
+      socketService.resign();
     }
   }, []);
 
   // 发送消息
   const handleSendMessage = useCallback((content: string) => {
-    socketService.sendChatMessage(content, () => {});
+    socketService.sendChatMessage(content);
   }, []);
 
   // 重新开始（复盘）
@@ -224,7 +235,7 @@ const Game: React.FC = () => {
       );
       if (!confirmed) return;
     }
-    socketService.leaveRoom(() => {});
+    socketService.leaveRoom();
     localStorage.removeItem('currentRoom');
     localStorage.removeItem('currentPlayer');
     navigate('/');
@@ -237,6 +248,15 @@ const Game: React.FC = () => {
   const isMyTurn = player?.color === room.currentTurn && room.status === 'playing';
   const canPlay = player?.role !== 'spectator' && room.status === 'playing' && isMyTurn;
 
+  // 复制密码
+  const copyPassword = async () => {
+    if (room?.password) {
+      await navigator.clipboard.writeText(room.password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   return (
     <div className="game-container">
       <div className="game-header">
@@ -245,8 +265,16 @@ const Game: React.FC = () => {
             {room.players.host?.nickname || '等待中'}（黑） vs {room.players.guest?.nickname || '等待中'}（白）
           </h2>
           <span className="game-status">
-            {room.status === 'playing' ? '对局中' : room.status === 'finished' ? '已结束' : '等待中'}
+            {room.status === 'playing' ? '对局中' : room.status === 'finished' ? '已结束' : '等待对手加入'}
           </span>
+          {room.status === 'waiting' && (
+            <span className="room-password">
+              房间密码：<strong>{room.password}</strong>
+              <button className="copy-pwd-btn" onClick={copyPassword}>
+                {copied ? '已复制' : '复制'}
+              </button>
+            </span>
+          )}
         </div>
         <button className="leave-btn" onClick={handleLeave}>返回大厅</button>
       </div>

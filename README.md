@@ -1,42 +1,45 @@
-# 围棋在线对弈平台 (Python 版)
+# 围棋在线对弈平台
 
 一个面向休闲娱乐玩家的围棋在线对弈平台，无需注册即可快速上手，创建房间邀请好友对弈。
 
 ## 技术栈
 
-- **前端**: React + TypeScript + Vite
-- **后端**: Python FastAPI + Socket.IO
-- **实时通信**: WebSocket
+- **前端**: React 18 + TypeScript + Vite
+- **后端**: Python FastAPI + 原生 WebSocket
+- **实时通信**: Socket.IO Client (前端) + WebSocket (后端)
+- **部署**: 支持本地运行和 Hugging Face Space
 
 ## 项目结构
 
 ```
-weiqi-online-python-v2/
-├── backend/          # Python FastAPI 后端
-│   ├── main.py       # 主入口 (Uvicorn + Socket.IO)
-│   ├── types.py      # Pydantic 类型定义
-│   ├── game_engine.py # 围棋规则引擎
-│   └── room_manager.py # 房间状态管理
-├── client/           # React 前端 (复用原项目)
-└── pyproject.toml    # Python 依赖配置
+weiqi-online-python/
+├── backend/                 # Python 后端
+│   ├── main.py            # FastAPI 主入口 + WebSocket 处理器
+│   ├── types.py           # Pydantic 数据模型
+│   ├── game_engine.py     # 围棋规则引擎 (禁着、提子、打劫、终局计算)
+│   ├── room_manager.py    # 房间状态管理
+│   └── hf_space.py        # HuggingFace Space 特定配置
+├── client/                 # React 前端
+│   └── src/
+│       ├── pages/         # Home, Game, Review, WaitingRoom
+│       ├── components/    # Board, Timer, Chat
+│       ├── game/           # 前端围棋规则校验
+│       └── services/      # Socket.IO 客户端
+├── app.py                 # HF Space 入口
+├── hf_space.json          # Space 元数据
+└── requirements.txt       # Python 依赖
 ```
 
 ## 快速开始
 
-### 1. 安装后端依赖
+### 后端 (端口 4000)
 
 ```bash
-pip install fastapi uvicorn python-socketio pydantic
-```
-
-### 2. 启动后端服务
-
-```bash
-cd weiqi-online-python-v2
+pip install -r requirements.txt
 python -m uvicorn backend.main:app --host 0.0.0.0 --port 4000
 ```
 
-### 3. 启动前端
+### 前端 (端口 3000)
 
 ```bash
 cd client
@@ -46,59 +49,72 @@ npm run dev
 
 访问 http://localhost:3000
 
-## 功能特性
-
-- 19×19 标准棋盘
-- 完整围棋规则（禁入点、提子、打劫）
-- 房间密码邀请对战
-- 随机昵称生成（形容词+可爱小动物，如"顽皮的小熊"）
-- 实时聊天（支持系统消息、用户消息，带时间戳）
-  - 系统消息以 `[系统]` 开头
-  - 当前用户消息显示 `[我]`
-  - 对方消息显示 `[对方昵称]`
-- 对局复盘
-- 计时系统（20分钟 + 3次60秒读秒）
-- 离开对局确认提示
-- 等待房间显示昵称和执棋颜色
-
 ## 游戏规则
 
-- 黑先白后，交替落子
-- 提子：围住对方棋子使其无气
-- 打劫：不能立即回提对方刚提掉的子
-- 禁入点：禁止自杀
-- 胜负：中国规则数子法，黑贴3.75子
+- **棋盘**: 19×19
+- **执子**: 黑先白后，交替落子
+- **禁着**: 自杀(无气)、立即打劫
+- **提子**: 围住对方棋子使其无气即被提掉
+- **终局**: 双方连续 Pass 或认输
+- **计时**: 20 分钟基础 + 3 次 60 秒读秒
+- **胜负**: 中国规则，黑贴 3.75 目
 
-## API 接口
+## 房间机制
 
-后端同时提供 HTTP REST 和 WebSocket 两种通信方式：
+- 房间密码: 5 位大写字母数字 (A-Z, 2-9，排除易混淆字符)
+- 每房间固定 2 人: 房主执黑，访客执白
+- 无注册，连接后自动分配随机昵称 (形容词+动物名)
+- 房间状态存储于内存，重启后房间消失
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/health` | 健康检查 |
+## 通信协议
 
-WebSocket 事件：
+**WebSocket 是唯一通信渠道**，HTTP 仅用于健康检查。
 
-- `room:create` - 创建房间
-- `room:join` - 加入房间
-- `room:ready` - 确认准备
-- `room:leave` - 离开房间
-- `game:move` - 落子
-- `game:pass` - 停一手
-- `game:resign` - 认输
-- `chat:send` - 发送消息
+### 客户端 → 服务端
+
+| 事件 | 说明 |
+|------|------|
+| `room:create` | 创建房间 |
+| `room:join` | 加入房间 |
+| `room:leave` | 离开房间 |
+| `game:move` | 落子 |
+| `game:pass` | 停一手 |
+| `game:resign` | 认输 |
+| `chat:send` | 发送消息 |
+
+### 服务端 → 房间
+
+| 事件 | 说明 |
+|------|------|
+| `room:created` | 房间创建成功 |
+| `room:game-start` | 游戏开始 |
+| `room:player-left` | 玩家离开 |
+| `game:move` | 落子广播 |
+| `game:pass` | 停手广播 |
+| `game:resign` | 认输 |
+| `game:end` | 游戏结束 |
+| `chat:message` | 聊天消息 |
+
+## 页面说明
+
+- **Home**: 创建/加入房间
+- **WaitingRoom**: 等待对手连接
+- **Game**: 对弈界面 (棋盘、计时器、聊天)
+- **Review**: 棋谱复盘
 
 ## Hugging Face 部署
 
-```bash
-# 直接运行
-python app.py
+HF Space 入口: `app.py` (即 `backend.main:app`)
 
-# 或 uvicorn
-uvicorn app:socket_app --host 0.0.0.0 --port 7860
+```bash
+python app.py
+# 或
+uvicorn app:app --host 0.0.0.0 --port 7860
 ```
 
-关键文件：
-- `app.py` - HF Space 入口（端口 7860）
-- `hf_space.json` - Space 元数据配置
-- `requirements.txt` - Python 依赖
+## 测试
+
+```bash
+pytest              # 后端测试
+cd client && npm run lint   # 前端 ESLint
+```

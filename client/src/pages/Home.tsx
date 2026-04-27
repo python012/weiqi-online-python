@@ -14,13 +14,44 @@ const Home: React.FC = () => {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // 连接Socket服务
     socketService.connect();
 
-    return () => {
-      // 清理连接
+    // 监听创建房间成功
+    const handleRoomCreated = (room: Room) => {
+      localStorage.setItem('currentRoom', JSON.stringify(room));
+      if (room.players.host) {
+        localStorage.setItem('currentPlayer', JSON.stringify(room.players.host));
+      }
+      setLoading(false);
+      navigate(`/game/${room.password}`);
     };
-  }, []);
+
+    // 监听加入房间成功（直接开始游戏）
+    const handleGameStart = (room: Room) => {
+      localStorage.setItem('currentRoom', JSON.stringify(room));
+      if (room.players.guest) {
+        localStorage.setItem('currentPlayer', JSON.stringify(room.players.guest));
+      }
+      setLoading(false);
+      navigate(`/game/${room.password}`);
+    };
+
+    // 监听错误
+    const handleError = (errMsg: string) => {
+      setError(errMsg);
+      setLoading(false);
+    };
+
+    socketService.onRoomCreated(handleRoomCreated);
+    socketService.onGameStart(handleGameStart);
+    socketService.onError(handleError);
+
+    return () => {
+      socketService.offRoomCreated(handleRoomCreated);
+      socketService.offGameStart(handleGameStart);
+      socketService.offError(handleError);
+    };
+  }, [navigate]);
 
   // 创建房间
   const handleCreate = () => {
@@ -31,16 +62,7 @@ const Home: React.FC = () => {
 
     setLoading(true);
     setError('');
-
-    socketService.createRoom(roomName.trim(), (room: Room) => {
-      // 存储房间信息和房主玩家信息
-      localStorage.setItem('currentRoom', JSON.stringify(room));
-      // 房主信息存储到 currentPlayer，确保后续页面能识别身份
-      if (room.players.host) {
-        localStorage.setItem('currentPlayer', JSON.stringify(room.players.host));
-      }
-      navigate(`/room/${room.password}`);
-    });
+    socketService.createRoom(roomName.trim());
   };
 
   // 加入房间
@@ -52,20 +74,7 @@ const Home: React.FC = () => {
 
     setLoading(true);
     setError('');
-
-    socketService.joinRoom(password.trim().toUpperCase(), (room, player, error) => {
-      if (error) {
-        setError(error);
-        setLoading(false);
-        return;
-      }
-
-      if (room && player) {
-        localStorage.setItem('currentRoom', JSON.stringify(room));
-        localStorage.setItem('currentPlayer', JSON.stringify(player));
-        navigate(`/room/${room.password}`);
-      }
-    });
+    socketService.joinRoom(password.trim().toUpperCase());
   };
 
   return (
