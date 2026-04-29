@@ -1,7 +1,7 @@
 // WebSocket 客户端服务层
 import { Room, Player, ChatMessage, Position } from '../types';
 
-const WS_URL = 'ws://localhost:4001';
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
 
 class SocketService {
   private ws: WebSocket | null = null;

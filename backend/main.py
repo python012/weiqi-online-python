@@ -2,9 +2,12 @@ import json
 import random
 import uuid
 import time
+from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from .room_manager import room_manager
 from .types import Player, StoneColor, ChatMessage, RoomStatus, Position, Move, Room
 
@@ -284,3 +287,17 @@ async def handle_chat_send(sid: str, content: str):
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "timestamp": time.time() * 1000}
+
+
+# Serve frontend static files (must be after all API routes)
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+if STATIC_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        file_path = STATIC_DIR / full_path
+        if full_path and file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(STATIC_DIR / "index.html")

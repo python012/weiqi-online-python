@@ -1,3 +1,19 @@
+---
+title: 围棋在线对弈
+emoji: ⭕
+colorFrom: yellow
+colorTo: black
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+tags:
+  - game
+  - go
+  - weiqi
+  - real-time
+---
+
 # 围棋在线对弈平台
 
 一个面向休闲娱乐玩家的围棋在线对弈平台，无需注册即可快速上手，创建房间邀请好友对弈。
@@ -6,7 +22,7 @@
 
 - **前端**: React 18 + TypeScript + Vite
 - **后端**: Python FastAPI + 原生 WebSocket
-- **实时通信**: Socket.IO Client (前端) + WebSocket (后端)
+- **实时通信**: 原生 WebSocket
 - **部署**: 支持本地运行和 Hugging Face Space
 
 ## 项目结构
@@ -14,20 +30,19 @@
 ```
 weiqi-online-python/
 ├── backend/                 # Python 后端
-│   ├── main.py            # FastAPI 主入口 + WebSocket 处理器
+│   ├── main.py            # FastAPI 主入口 + WebSocket + 静态文件服务
 │   ├── types.py           # Pydantic 数据模型
 │   ├── game_engine.py     # 围棋规则引擎 (禁着、提子、打劫、终局计算)
-│   ├── room_manager.py    # 房间状态管理
-│   └── hf_space.py        # HuggingFace Space 特定配置
+│   └── room_manager.py    # 房间状态管理
 ├── client/                 # React 前端
 │   └── src/
 │       ├── pages/         # Home, Game, Review, WaitingRoom
 │       ├── components/    # Board, Timer, Chat
 │       ├── game/           # 前端围棋规则校验
-│       └── services/      # Socket.IO 客户端
-├── app.py                 # HF Space 入口
-├── hf_space.json          # Space 元数据
-└── requirements.txt       # Python 依赖
+│       └── services/      # WebSocket 客户端
+├── Dockerfile             # HF Spaces Docker 构建 (前端+后端)
+├── requirements.txt       # Python 依赖
+└── app.py                 # 本地入口
 ```
 
 ## 快速开始
@@ -104,13 +119,9 @@ npm run dev
 
 ## Hugging Face 部署
 
-HF Space 入口: `app.py` (即 `backend.main:app`)
+通过 Docker 自动构建部署。创建 HF Space 时选择 **Docker** SDK，关联此仓库即可。
 
-```bash
-python app.py
-# 或
-uvicorn app:app --host 0.0.0.0 --port 7860
-```
+构建流程：`Dockerfile` 先编译 React 前端到 `static/`，再由 FastAPI 同时提供 API 和前端静态文件。
 
 ## 测试
 

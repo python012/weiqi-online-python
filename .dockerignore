@@ -1,0 +1,16 @@
+node_modules/
+client/node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+.omc/
+dist/
+build/
+.env
+*.log
+.pytest_cache/
+.mypy_cache/
+.vscode/
+.idea/

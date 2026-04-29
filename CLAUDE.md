@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Install backend dependencies
-pip install fastapi uvicorn python-socketio pydantic
+pip install -r requirements.txt  # fastapi, uvicorn, pydantic
 
 # Start backend server (default port 4000)
 python -m uvicorn backend.main:app --host 0.0.0.0 --port 4000
@@ -34,33 +34,69 @@ npm run build    # Build for production
 npm run lint     # ESLint check
 ```
 
+### HuggingFace Space Deployment
+
+```bash
+# HF Space entry point (port 7860)
+python app.py
+# or
+uvicorn app:app --host 0.0.0.0 --port 7860
+```
+
 ## Architecture
 
 ### Backend (`backend/`)
 
-FastAPI + Socket.IO hybrid architecture:
+FastAPI with native WebSocket (NOT python-socketio):
 
-- **main.py**: FastAPI app entry point with Socket.IO server. Handles WebSocket events for room management, game moves, and chat. Uses `socket_map` to track sid→password→player_id mappings.
+- **main.py**: FastAPI app with WebSocket endpoint `/ws/{sid}`. Uses `ConnectionManager` class to manage active connections (`sid → websocket`) and player mappings (`sid → {password, player_id}`). Handles all WebSocket events.
 - **room_manager.py**: `RoomManager` class managing all game rooms in-memory. Creates rooms, handles joining/leaving, validates moves, manages game state transitions (WAITING → PLAYING → FINISHED).
 - **game_engine.py**: Go rule implementation including position validation, liberty calculation (`get_liberties`), capture logic (`capture_stones`), ko rule enforcement, and territory scoring (`calculate_score` using Chinese rules with 3.75 komi).
 - **types.py**: Pydantic models for `Room`, `Player`, `Move`, `StoneColor`, `Position`, `ChatMessage`. Game config constants (19x19 board, 20min base time + 3x60s byoyomi).
+- **hf_space.py**: HF Space-specific wrapper (currently just re-exports `backend.main:app`).
+
+### Root Files
+
+- **app.py**: HuggingFace Space entry point - imports and exposes `backend.main:app`
+- **hf_space.json**: Space metadata (title, emoji, SDK, tags)
 
 ### Frontend (`client/src/`)
 
-React + TypeScript + Vite with Socket.IO client:
+React + TypeScript + Vite with native WebSocket client:
 
-- **services/socket.ts**: Singleton `socketService` wrapping Socket.IO client. Methods for game events (create/join room, move, pass, resign, chat) and event listeners.
+- **services/socket.ts**: Singleton `socketService` wrapping native WebSocket. Connects to `ws://host:port/ws/{sid}`. Methods for game events (create/join room, move, pass, resign, chat) and event listeners.
 - **pages/**: Home (create/join room), WaitingRoom (await game start), Game (active play), Review (game replay with move navigation).
 - **components/**: Board (19x19 grid with hover preview, star points, move numbers), Chat (messages with system/user distinction), Timer (countdown with byoyomi display).
 - **game/engine.ts**: Frontend Go rule validation (mirrors backend for immediate feedback).
 
 ### Communication Flow
 
-Socket.IO is the primary communication channel. HTTP endpoint `/api/health` is only for health checks.
+Native WebSocket is the primary communication channel. HTTP endpoint `/api/health` is only for health checks.
 
-Key WebSocket events:
-- Client → Server: `room:create`, `room:join`, `room:ready`, `game:move`, `game:pass`, `game:resign`, `chat:send`
-- Server → Room: `room:created`, `room:updated`, `game:move`, `game:end`, `chat:message`
+WebSocket endpoint: `ws://{host}:{port}/ws/{sid}` where `sid` is a unique session identifier.
+
+Key WebSocket events (JSON messages with `{event: string, data: any}`):
+
+**Client → Server:**
+- `room:create` - Create new room (data: room_name)
+- `room:join` - Join existing room (data: password)
+- `room:leave` - Leave current room
+- `game:move` - Place stone (data: {x, y})
+- `game:pass` - Pass turn
+- `game:resign` - Resign game
+- `chat:send` - Send message (data: content)
+
+**Server → Room:**
+- `room:created` - Room created successfully
+- `room:game-start` - Both players connected, game begins
+- `room:player-left` - Player disconnected
+- `room:updated` - Room state changed
+- `game:move` - Stone placed with updated board state
+- `game:pass` - Turn passed
+- `game:resign` - Player resigned
+- `game:end` - Game finished (with final state and scores)
+- `chat:message` - New chat message
+- `error` - Error response with message
 
 Room passwords are 5-character uppercase strings (A-Z, 2-9, excluding confusing chars). Room data is stored in-memory; restart clears all rooms.
 
