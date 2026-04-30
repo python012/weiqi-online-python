@@ -81,6 +81,7 @@ const Home: React.FC = () => {
     <div className="home-container">
       <div className="home-card">
         <h1 className="home-title">围棋在线对弈</h1>
+        <p className="home-subtitle">由 AI 辅助开发</p>
         
         <div className="home-tabs">
           <button 
