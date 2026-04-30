@@ -7,27 +7,27 @@
 3. [核心类型定义](#核心类型定义)
 4. [围棋规则引擎](#围棋规则引擎)
 5. [房间管理器](#房间管理器)
-6. [Socket.IO 事件处理](#socketio-事件处理)
+6. [WebSocket 事件处理](#websocket-事件处理)
 7. [API 参考](#api-参考)
 
 ---
 
 ## 架构概述
 
-后端采用 **FastAPI + Socket.IO** 的混合架构：
+后端采用 **FastAPI + 原生 WebSocket** 的架构：
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                     FastAPI App                         │
 │  ┌─────────────────┐    ┌─────────────────────────────┐ │
-│  │   HTTP Server   │    │   Socket.IO Server (ASGI)  │ │
-│  │  /api/health    │◄──►│   Real-time Game Events    │ │
+│  │   HTTP Server   │    │   WebSocket Server          │ │
+│  │  /api/health    │◄──►│   Real-time Game Events     │ │
 │  └─────────────────┘    └─────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
 - **FastAPI**: 提供 HTTP REST 接口（如健康检查）
-- **Socket.IO**: 处理实时双向通信（游戏逻辑、聊天）
+- **原生 WebSocket**: 处理实时双向通信（游戏逻辑、聊天）
 - **In-Memory 存储**: 房间和游戏状态存储在内存中
 
 ### 技术栈
@@ -35,7 +35,6 @@
 | 组件 | 版本 | 用途 |
 |------|------|------|
 | FastAPI | 0.109+ | Web 框架 |
-| python-socketio | 5.11+ | WebSocket 通信 |
 | Pydantic | 2.5+ | 数据验证与序列化 |
 | Uvicorn | 0.27+ | ASGI 服务器 |
 
@@ -46,7 +45,7 @@
 ```
 backend/
 ├── __init__.py      # 包初始化
-├── main.py          # 应用入口 (FastAPI + Socket.IO)
+├── main.py          # 应用入口 (FastAPI + WebSocket)
 ├── types.py         # Pydantic 数据模型
 ├── game_engine.py   # 围棋规则引擎
 └── room_manager.py  # 房间状态管理
@@ -258,8 +257,8 @@ class RoomManager:
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  WAITING   │────►│  PLAYING    │────►│  FINISHED   │
-│  等待中     │     │  对局中     │     │  已结束     │
+│  WAITING    │────►│  PLAYING    │────►│  FINISHED   │
+│  等待中      │     │  对局中     │     │  已结束      │
 └─────────────┘     └─────────────┘     └─────────────┘
       │                   │                   │
       │ 双方准备就绪       │ 棋局结束          │
@@ -277,7 +276,7 @@ def _generate_password(self) -> str:
 
 ---
 
-## Socket.IO 事件处理
+## WebSocket 事件处理
 
 位于 `main.py`，处理所有 WebSocket 事件。
 
@@ -285,44 +284,46 @@ def _generate_password(self) -> str:
 
 | 客户端事件 | 服务器处理 | 说明 |
 |------------|-------------|------|
-| `room_create` | `room_create(sid, room_name)` | 创建房间 |
-| `room_join` | `room_join(sid, password)` | 加入房间 |
-| `room_ready` | `room_ready(sid)` | 确认准备 |
-| `room_leave` | `room_leave(sid)` | 离开房间 |
-| `game_move` | `game_move(sid, position)` | 落子 |
-| `game_pass` | `game_pass(sid)` | 停一手 |
-| `game_resign` | `game_resign(sid)` | 认输 |
-| `chat_send` | `chat_send(sid, content)` | 发送消息 |
+| `room:create` | `handle_room_create(sid, data)` | 创建房间 |
+| `room:join` | `handle_room_join(sid, data)` | 加入房间 |
+| `room:ready` | `handle_room_ready(sid)` | 确认准备 |
+| `room:leave` | `handle_room_leave(sid)` | 离开房间 |
+| `game:move` | `handle_game_move(sid, data)` | 落子 |
+| `game:pass` | `handle_game_pass(sid)` | 停一手 |
+| `game:resign` | `handle_game_resign(sid)` | 认输 |
+| `chat:send` | `handle_chat_send(sid, data)` | 发送消息 |
 
 ### 服务器推送事件
 
 | 事件 | 数据 | 说明 |
 |------|------|------|
 | `room:created` | Room | 房间创建成功 |
-| `room:joined` | Room, Player | 加入房间成功 |
+| `room:joined` | { room, player } | 加入房间成功 |
 | `room:updated` | Room | 房间状态更新 |
-| `room:player-joined` | Player | 新玩家加入 |
 | `room:player-left` | playerId | 玩家离开 |
+| `room:player-joined` | Player | 新玩家加入 |
 | `room:game-start` | Room | 游戏开始 |
-| `game:move` | Move, Room | 落子事件 |
-| `game:pass` | Move, Room | 停一手 |
+| `game:move` | { move, room } | 落子事件 |
+| `game:pass` | { move, room } | 停一手 |
 | `game:resign` | StoneColor | 认输 |
 | `game:end` | Room | 游戏结束 |
 | `chat:message` | ChatMessage | 聊天消息 |
 | `error` | string | 错误信息 |
 
-### Socket 映射
+### 连接映射
 
 ```python
-socket_map: dict[str, dict] = {
-    "socket_id": {
+# ConnectionManager (main.py)
+manager.active_connections: dict[str, WebSocket]  # sid -> websocket
+manager.sid_to_player: dict[str, dict] = {
+    "sid": {
         "password": "ABC12",    # 所在房间密码
         "player_id": "xxx"      # 玩家 ID
     }
 }
 ```
 
-用于在事件处理时关联 Socket ID 和玩家信息。
+用于在事件处理时关联 WebSocket 连接和玩家信息。
 
 ### 事件处理流程示例
 
@@ -334,8 +335,26 @@ socket_map: dict[str, dict] = {
    │                               │ 1. 生成 player_id
    │                               │ 2. 创建 Player
    │                               │ 3. 创建 Room
-   │                               │ 4. 关联 socket_map
+   │                               │ 4. 关联 sid_to_player
    │◄─── room:created (Room) ─────│
+   │                               │
+```
+
+#### 加入房间 + 确认开始
+```
+客户端                           服务器
+   │                               │
+   │──── room:join (password) ────►│
+   │                               │ 1. 验证密码
+   │                               │ 2. 创建 Guest Player
+   │                               │ 3. 加入房间
+   │◄─── room:joined ({room,player})│（只有加入者收到）
+   │◄─── room:updated (Room) ──────│（房间所有人收到）
+   │                               │
+   │──── room:ready ───────────────►│ 双方点击确认
+   │                               │ 1. 标记玩家 isReady
+   │                               │ 2. 双方都就绪则 start_game
+   │◄─── room:game-start (Room) ───│（双方收到，跳转对局页）
    │                               │
 ```
 
@@ -349,7 +368,7 @@ socket_map: dict[str, dict] = {
    │                               │ 3. 执行落子
    │                               │ 4. 更新棋盘
    │                               │ 5. 切换执子方
-   │◄─── game:move (Move, Room) ───│
+   │◄─── game:move ({move, room})──│
    │                               │
 ```
 
@@ -373,9 +392,9 @@ GET /api/health
 }
 ```
 
-### Socket.IO 命名空间
+### WebSocket 端点
 
-使用默认命名空间 `/`，连接 URL: `http://localhost:4000`
+连接 URL: `ws://localhost:4000/ws/{sid}`，其中 `sid` 为客户端生成的唯一会话标识。
 
 ---
 
@@ -406,7 +425,7 @@ GET /api/health
 
 ---
 
-## 扩展建议
+## 未来的扩展
 
 1. **持久化存储**: 接入 Redis 或数据库存储房间状态
 2. **房间超时**: 添加房间自动清理机制
