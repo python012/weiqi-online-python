@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { socketService } from '../services/socket';
-import { Room } from '../types';
+import { Room, Player } from '../types';
 import './Home.css';
 
 const Home: React.FC = () => {
@@ -23,17 +23,17 @@ const Home: React.FC = () => {
         localStorage.setItem('currentPlayer', JSON.stringify(room.players.host));
       }
       setLoading(false);
-      navigate(`/game/${room.password}`);
+      navigate(`/room/${room.password}`);
     };
 
-    // 监听加入房间成功（直接开始游戏）
-    const handleGameStart = (room: Room) => {
+    // 监听加入房间成功（导航到等待室）
+    const handleRoomJoined = (data: any) => {
+      const room: Room = data.room;
+      const player: Player = data.player;
       localStorage.setItem('currentRoom', JSON.stringify(room));
-      if (room.players.guest) {
-        localStorage.setItem('currentPlayer', JSON.stringify(room.players.guest));
-      }
+      localStorage.setItem('currentPlayer', JSON.stringify(player));
       setLoading(false);
-      navigate(`/game/${room.password}`);
+      navigate(`/room/${room.password}`);
     };
 
     // 监听错误
@@ -43,12 +43,12 @@ const Home: React.FC = () => {
     };
 
     socketService.onRoomCreated(handleRoomCreated);
-    socketService.onGameStart(handleGameStart);
+    socketService.onRoomJoined(handleRoomJoined);
     socketService.onError(handleError);
 
     return () => {
       socketService.offRoomCreated(handleRoomCreated);
-      socketService.offGameStart(handleGameStart);
+      socketService.offRoomJoined(handleRoomJoined);
       socketService.offError(handleError);
     };
   }, [navigate]);

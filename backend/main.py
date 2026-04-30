@@ -86,6 +86,8 @@ async def websocket_endpoint(websocket: WebSocket, sid: str):
                 await handle_room_create(sid, payload)
             elif event == "room:join":
                 await handle_room_join(sid, payload)
+            elif event == "room:ready":
+                await handle_room_ready(sid)
             elif event == "room:leave":
                 await handle_room_leave(sid)
             elif event == "game:move":
@@ -143,7 +145,7 @@ async def handle_room_join(sid: str, password: str):
         nickname=generate_nickname(),
         role="guest",
         color=StoneColor.WHITE,
-        isReady=True,
+        isReady=False,
         connected=True,
         timeRemaining=20 * 60 * 1000,
         byoyomiCount=3,
@@ -159,18 +161,35 @@ async def handle_room_join(sid: str, password: str):
     if room:
         manager.sid_to_player[sid] = {"password": password, "player_id": player_id}
 
-        guest = room.players.get("guest")
-        host = room.players.get("host")
-
-        room_manager.start_game(password)
         room_data = room.model_dump()
+        player_data = player.model_dump()
 
-        # Send to guest (joining player)
-        await manager.send_personal(sid, {"event": "room:game-start", "data": room_data})
+        # Send to guest personally with player info
+        await manager.send_personal(sid, {"event": "room:joined", "data": {"room": room_data, "player": player_data}})
 
-        # Send to host if connected
-        if host and host.connected:
-            await manager.send_to_room(password, {"event": "room:game-start", "data": room_data})
+        # Notify room about updated state
+        await manager.send_to_room(password, {"event": "room:updated", "data": room_data})
+
+
+async def handle_room_ready(sid: str):
+    if sid not in manager.sid_to_player:
+        return
+
+    password = manager.sid_to_player[sid]["password"]
+    player_id = manager.sid_to_player[sid]["player_id"]
+
+    both_ready = room_manager.player_ready(password, player_id)
+    room = room_manager.get_room_by_password(password)
+
+    if not room:
+        return
+
+    if both_ready:
+        room_manager.start_game(password)
+        room = room_manager.get_room_by_password(password)
+        await manager.send_to_room(password, {"event": "room:game-start", "data": room.model_dump()})
+    else:
+        await manager.send_to_room(password, {"event": "room:updated", "data": room.model_dump()})
 
 
 async def handle_room_leave(sid: str):

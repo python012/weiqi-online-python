@@ -235,13 +235,14 @@ class RoomManager:
         winner = None
         if host and host.id == player_id:
             winner = StoneColor.WHITE if guest else StoneColor.BLACK
+            room.result = "黑方认输"
         elif guest and guest.id == player_id:
             winner = StoneColor.BLACK
+            room.result = "白方认输"
 
         if winner:
             room.status = RoomStatus.FINISHED
             room.winner = winner
-            room.result = "对方认输"
             return winner, None
 
         return None, "非游戏参与者"

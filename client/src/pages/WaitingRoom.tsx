@@ -77,7 +77,7 @@ const WaitingRoom: React.FC = () => {
 
   // 确认开始
   const handleReady = () => {
-    socketService.setReady(() => {});
+    socketService.setReady();
   };
 
   if (!room) {

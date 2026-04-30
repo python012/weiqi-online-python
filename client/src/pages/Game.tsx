@@ -33,15 +33,36 @@ const Game: React.FC = () => {
     const savedPlayer = localStorage.getItem('currentPlayer');
     
     if (savedRoom) {
-      setRoom(JSON.parse(savedRoom));
+      const r = JSON.parse(savedRoom);
+      setRoom(r);
     }
     if (savedPlayer) {
       const p = JSON.parse(savedPlayer);
       setPlayer(p);
       setMyColor(p.color);
-    }
 
-    // 游戏开始时添加系统提示消息（由 handleGameStart 处理）
+      // 初始化系统消息
+      const now = Date.now();
+      const isBlack = p.color === 'black';
+      setMessages([
+        {
+          id: `sys_name_${now}`,
+          senderId: 'system',
+          senderNickname: '[系统]',
+          content: `您的昵称是：${p.nickname}`,
+          timestamp: now,
+        },
+        {
+          id: `sys_start_${now}`,
+          senderId: 'system',
+          senderNickname: '[系统]',
+          content: isBlack
+            ? '本局由您执黑先行'
+            : '本局由您执白，等待对方落子',
+          timestamp: now,
+        },
+      ]);
+    }
 
     // Socket 事件监听
     const handleRoomCreated = (createdRoom: Room) => {
@@ -52,32 +73,6 @@ const Game: React.FC = () => {
     const handleGameStart = (updatedRoom: Room) => {
       setRoom(updatedRoom);
       localStorage.setItem('currentRoom', JSON.stringify(updatedRoom));
-      // 初始化系统消息
-      const currentRoom = localStorage.getItem('currentRoom');
-      const savedPlayer = localStorage.getItem('currentPlayer');
-      if (savedPlayer) {
-        const parsedPlayer: Player = JSON.parse(savedPlayer);
-        const isBlack = parsedPlayer.color === 'black';
-        const now = Date.now();
-        setMessages([
-          {
-            id: `sys_name_${now}`,
-            senderId: 'system',
-            senderNickname: '系统',
-            content: `您的昵称是：${parsedPlayer.nickname}`,
-            timestamp: now,
-          },
-          {
-            id: `sys_start_${now}`,
-            senderId: 'system',
-            senderNickname: '系统',
-            content: isBlack
-              ? '对局开始，本次对局由您执黑，请您开始斟酌落子'
-              : '对局开始，本次对局由您执白，现在开始等待对方落子',
-            timestamp: now,
-          },
-        ]);
-      }
     };
 
     const handleRoomUpdated = (updatedRoom: Room) => {

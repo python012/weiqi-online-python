@@ -4,7 +4,7 @@
 
 ```bash
 # 后端 (端口 4000)
-pip install fastapi uvicorn "python-socketio[asyncio]" pydantic
+pip install fastapi uvicorn pydantic
 python -m uvicorn backend.main:app --host 0.0.0.0 --port 4000
 
 # 前端 (端口 3000)
@@ -13,22 +13,22 @@ cd client && npm install && npm run dev
 
 ## 项目结构
 
-- `backend/` - Python FastAPI + Socket.IO（主要逻辑）
-  - `main.py` - Socket.IO 事件入口，sid→player_id 映射
+- `backend/` - Python FastAPI + 原生 WebSocket（主要逻辑）
+  - `main.py` - WebSocket 事件入口，sid→player_id 映射
   - `room_manager.py` - 房间管理，内存存储，重启清空
   - `game_engine.py` - 围棋规则（落子验证、提子、眼算法、终局计算）
   - `types.py` - Pydantic 数据模型
 - `client/` - React + TypeScript + Vite（前端 UI）
-  - `src/services/socket.ts` - Socket.IO 客户端单例
+  - `src/services/socket.ts` - 原生 WebSocket 客户端单例
   - `src/game/engine.ts` - 前端围棋规则校验（与后端 game_engine.py 逻辑一致）
 
 ## 通信架构
 
-**Socket.IO 是唯一通信渠道**，HTTP 只有 `/api/health` 健康检查。
+**原生 WebSocket 是唯一通信渠道**，HTTP 只有 `/api/health` 健康检查。
 
 关键事件：
 - 客户端→服务端：`room:create`、`room:join`、`room:ready`、`game:move`、`game:pass`、`game:resign`、`chat:send`
-- 服务端→房间：`room:created`、`room:updated`、`game:move`、`game:end`、`chat:message`
+- 服务端→房间：`room:created`、`room:joined`、`room:updated`、`room:game-start`、`game:move`、`game:pass`、`game:end`、`chat:message`
 
 ## 游戏规则要点
 

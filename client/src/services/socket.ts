@@ -129,6 +129,13 @@ class SocketService {
   }
 
   /**
+   * 确认准备
+   */
+  setReady(): void {
+    this.send('room:ready');
+  }
+
+  /**
    * 发送聊天消息
    */
   sendChatMessage(content: string): void {
